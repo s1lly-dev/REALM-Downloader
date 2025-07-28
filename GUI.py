@@ -2,10 +2,13 @@
 # Author  : VergePoland (OG Dev), T (New Developer), Cheato (Liberator Dev), Lungu (Shears Dev), SlejmUr (SlejmUr's Downloader), Puppetino (FAQs) Philo (Biography)
 # ================================================================================================================================================================
 
-# im not adding comments to 2,300k lines of code ngl im the only dev (:
 import threading
 import json
 import os
+import subprocess
+import urllib.request
+import zipfile
+import shutil
 from functools import partial
 from pathlib import Path
 from kivy.app import App
@@ -29,7 +32,6 @@ from kivy.graphics import Color, Rectangle, Line, RoundedRectangle
 from kivy.uix.widget import Widget
 from kivy.uix.image import Image
 import downloader # type: ignore
-
 
 COLORS = {
     'background': (0.04, 0.04, 0.04, 1),      
@@ -64,10 +66,13 @@ class UserSettings:
         self.max_downloads = 25
         self.auto_start_downloads = False
         self.downloads_folder = str(Path.cwd() / "Downloads")
+        self.resources_folder = str(Path.cwd() / "Resources")
         self.theme = "dark"
         self.game_username = "ThrowbackUser"
         self.auto_configure = True
         self.show_patch_notes = True
+        self.auto_download_resources = True
+        self.check_resources_on_startup = True
         self.load_settings()
     
     def load_settings(self):
@@ -92,10 +97,13 @@ class UserSettings:
                 'max_downloads': self.max_downloads,
                 'auto_start_downloads': self.auto_start_downloads,
                 'downloads_folder': self.downloads_folder,
+                'resources_folder': self.resources_folder,
                 'theme': self.theme,
                 'game_username': self.game_username,
                 'auto_configure': self.auto_configure,
-                'show_patch_notes': self.show_patch_notes
+                'show_patch_notes': self.show_patch_notes,
+                'auto_download_resources': self.auto_download_resources,
+                'check_resources_on_startup': self.check_resources_on_startup
             }
             with open(self._settings_file, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -114,6 +122,216 @@ downloader.ask_credentials = patched_ask_credentials
 
 if hasattr(downloader, 'DOWNLOADS_DIR'):
     downloader.DOWNLOADS_DIR = Path(user_settings.downloads_folder)
+
+class ResourceManager:
+    """Manage resource downloads and setup"""
+    
+    @staticmethod
+    def ensure_directories():
+        """Ensure all necessary directories exist"""
+        try:
+            resources_path = Path(user_settings.resources_folder)
+            tools_path = resources_path / "Tools"
+            
+            resources_path.mkdir(exist_ok=True)
+            tools_path.mkdir(exist_ok=True)
+            
+            return True, "Directories created successfully"
+        except Exception as e:
+            return False, f"Failed to create directories: {str(e)}"
+    
+    @staticmethod
+    def download_7zip():
+        """Download 7zip executable"""
+        try:
+            resources_path = Path(user_settings.resources_folder)
+            seven_zip_path = resources_path / "7z.exe"
+            
+            if seven_zip_path.exists():
+                return True, "7zip already exists"
+            
+            url = "https://www.7-zip.org/a/7zr.exe"
+            
+            print(f"Downloading 7zip to {seven_zip_path}")
+            urllib.request.urlretrieve(url, seven_zip_path)
+            
+            if seven_zip_path.exists() and seven_zip_path.stat().st_size > 0:
+                return True, f"7zip downloaded successfully to {seven_zip_path}"
+            else:
+                return False, "7zip download failed - file is empty or missing"
+                
+        except Exception as e:
+            return False, f"Failed to download 7zip: {str(e)}"
+    
+    @staticmethod
+    def check_resources():
+        """Check if all required resources are available"""
+        resources_path = Path(user_settings.resources_folder)
+        seven_zip_path = resources_path / "7z.exe"
+        
+        missing_resources = []
+        
+        if not resources_path.exists():
+            missing_resources.append("Resources directory")
+        
+        if not seven_zip_path.exists():
+            missing_resources.append("7zip executable")
+        
+        return len(missing_resources) == 0, missing_resources
+    
+    @staticmethod
+    def setup_all_resources():
+        """Setup all required resources"""
+        try:
+            success, message = ResourceManager.ensure_directories()
+            if not success:
+                return False, message
+            
+            success, message = ResourceManager.download_7zip()
+            if not success:
+                return False, message
+            
+            return True, "All resources setup successfully"
+            
+        except Exception as e:
+            return False, f"Failed to setup resources: {str(e)}"
+
+class PatchManager:
+    """Manage HeatedMetal patches"""
+    
+    @staticmethod
+    def download_heated_metal():
+        """Download HeatedMetal patches"""
+        """CUM"""
+        try:
+            url = "https://github.com/DataCluster0/HeatedMetal/releases/download/0.2.3/HeatedMetal.7z"
+            output_path = Path("HeatedMetal.7z")
+            
+            print(f"Downloading HeatedMetal from {url}")
+            
+            def download_with_progress(url, filepath):
+                response = urllib.request.urlopen(url)
+                total_size = int(response.headers.get('Content-Length', 0))
+                
+                with open(filepath, 'wb') as f:
+                    downloaded = 0
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        if total_size > 0:
+                            progress = (downloaded / total_size) * 100
+                            print(f"Download progress: {progress:.1f}%")
+            
+            download_with_progress(url, output_path)
+            
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                return False, "Download failed - file is missing or empty"
+            
+            y5s3_path = Path(user_settings.downloads_folder) / "Y5S4_NeonDawnHM"
+            if y5s3_path.exists():
+                extract_path = y5s3_path
+            else:
+                extract_path = Path(user_settings.resources_folder) / "Tools" / "HeatedMetal"
+                extract_path.mkdir(parents=True, exist_ok=True)
+            
+            print(f"Extracting to {extract_path}")
+            
+            seven_zip_path = Path(user_settings.resources_folder) / "7z.exe"
+            if seven_zip_path.exists():
+                try:
+                    result = subprocess.run([
+                        str(seven_zip_path), "x", "-y", 
+                        f"-o{extract_path}", str(output_path), "-aoa"
+                    ], capture_output=True, text=True, check=True)
+                    print(f"7zip extraction result: {result.stdout}")
+                except subprocess.CalledProcessError as e:
+                    print(f"7zip extraction failed: {e.stderr}")
+                    output_path.unlink()  
+                    return False, f"Extraction failed: {e.stderr}"
+            else:
+                output_path.unlink() 
+                return False, "7zip is required to extract HeatedMetal patches. Please setup resources first in Settings."
+            
+            output_path.unlink()
+            
+            if extract_path.exists() and any(extract_path.iterdir()):
+                return True, f"HeatedMetal patches installed to {extract_path}"
+            else:
+                return False, "Extraction failed - no files were extracted"
+            
+        except Exception as e:
+            print(f"HeatedMetal download error: {e}")
+            return False, f"Failed to download HeatedMetal: {str(e)}"
+
+class ToolManager:
+    """Manage additional tools downloads"""
+    
+    @staticmethod
+    def download_liberator():
+        """Download R6 Liberator tool"""
+        try:
+            url = "https://github.com/SlejmUr/Manifest_Tool_TB/raw/main/R6_Liberator_0.0.0.22.exe"
+            tools_path = Path(user_settings.resources_folder) / "Tools"
+            tools_path.mkdir(parents=True, exist_ok=True)
+            output_path = tools_path / "R6_Liberator_0.0.0.22.exe"
+            
+            print(f"Downloading R6 Liberator from {url}")
+            urllib.request.urlretrieve(url, output_path)
+            
+            if output_path.exists() and output_path.stat().st_size > 0:
+                return True, f"R6 Liberator downloaded to {output_path}"
+            else:
+                return False, "R6 Liberator download failed - file is missing or empty"
+            
+        except Exception as e:
+            print(f"R6 Liberator download error: {e}")
+            return False, f"Failed to download R6 Liberator: {str(e)}"
+    
+    @staticmethod
+    def download_dxvk():
+        """Download DXVK for Siege"""
+        try:
+            url = "https://github.com/Vergepoland/r6-downloader/raw/refs/heads/main/Siege-DXVK.zip"
+            output_path = Path("Siege-DXVK.zip")
+            
+            print(f"Downloading Siege DXVK from {url}")
+            urllib.request.urlretrieve(url, output_path)
+            
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                return False, "Download failed - file is missing or empty"
+            
+            extract_path = Path(user_settings.resources_folder) / "Tools" / "Siege-DXVK"
+            extract_path.mkdir(parents=True, exist_ok=True)
+            
+            seven_zip_path = Path(user_settings.resources_folder) / "7z.exe"
+            if seven_zip_path.exists():
+                try:
+                    subprocess.run([
+                        str(seven_zip_path), "x", "-y", 
+                        f"-o{extract_path}", str(output_path), "-aoa"
+                    ], check=True, capture_output=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"7zip extraction failed: {e}")
+                    with zipfile.ZipFile(output_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_path)
+            else:
+                with zipfile.ZipFile(output_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_path)
+            
+            output_path.unlink()
+            
+            if extract_path.exists() and any(extract_path.iterdir()):
+                return True, f"Siege DXVK installed to {extract_path}"
+            else:
+                return False, "Extraction failed - no files were extracted"
+            
+        except Exception as e:
+            print(f"Siege DXVK download error: {e}")
+            return False, f"Failed to download Siege DXVK: {str(e)}"
 
 class ConfigEditor:
     """Handle CPlay.ini and CODEX.ini editing"""
@@ -239,7 +457,7 @@ GAME_LIBRARY = {
     'DustLine': GameInfo(
         name="Operation Dust Line",
         folder_name="Y1S2_DustLine",
-        description="Y1S2; Added Pre rework Border Navy Seals Operators  Overpowered Blackbeard and Outside Black Eye Valkyrie",
+        description="Y1S2; Added Pre rework Border Navy Seals Operators Overpowered Blackbeard and Outside Black Eye Valkyrie",
         release_date="May 11, 2016",
         size_mb=20900,
         patch_notes=[
@@ -303,17 +521,26 @@ GAME_LIBRARY = {
         release_date="June 7, 2017",
         size_mb=34000,
         patch_notes=[
-            "REWORKING",
+            "Major engine improvements",
+            "Hit registration fixes",
+            "Server stability enhancements",
+            "Network optimization",
+            "Bug fixes and polish"
         ]
     ),
     'BloodOrchid': GameInfo(
         name="Operation Blood Orchid",
         folder_name="Y2S3_BloodOrchid",
-        description="Y2S3: Added GROM Operator No Recoil Ela and SDU Operators Cloaked Lesion and Ying,  Pre rework Theme Park",
+        description="Y2S3: Added GROM Operator No Recoil Ela and SDU Operators Cloaked Lesion and Ying, Pre rework Theme Park",
         release_date="August 29, 2017",
         size_mb=34300,
         patch_notes=[
-            "REWORKING",
+            "Added Ela (Defender) - Grzmot mines",
+            "Added Lesion (Defender) - Gu mines",
+            "Added Ying (Attacker) - Candela devices",
+            "New map: Theme Park",
+            "Lighting improvements",
+            "Operator balancing"
         ]
     ),
     'WhiteNoise': GameInfo(
@@ -323,7 +550,12 @@ GAME_LIBRARY = {
         release_date="December 5, 2017",
         size_mb=48700,
         patch_notes=[
-            "REWORKING",
+            "Added Zofia (Attacker) - KS79 Lifeline",
+            "Added Vigil (Defender) - ERC-7 cloak",
+            "Added Dokkaebi (Attacker) - Logic Bomb",
+            "New map: Tower",
+            "Pick and Ban system",
+            "Outbreak event preparation"
         ]
     ),
     'Chimera': GameInfo(
@@ -333,7 +565,12 @@ GAME_LIBRARY = {
         release_date="February 1, 2018",
         size_mb=58800,
         patch_notes=[
-            "REWORKING",
+            "Added Lion (Attacker) - EE-ONE-D drone",
+            "Added Finka (Defender) - Adrenal Surge",
+            "Outbreak cooperative event",
+            "Advanced drone deployment",
+            "Weapon attachment rework",
+            "UI improvements"
         ]
     ),
     'Parabellum': GameInfo(
@@ -343,7 +580,12 @@ GAME_LIBRARY = {
         release_date="June 7th, 2018",
         size_mb=63300,
         patch_notes=[
-            "REWORKING",
+            "Added Maestro (Defender) - Evil Eye cameras",
+            "Added Alibi (Defender) - Prisma holograms",
+            "New map: Villa",
+            "Frag grenade changes",
+            "Operator icon updates",
+            "Sound improvements"
         ]
     ),
     'Grimsky': GameInfo(
@@ -353,17 +595,27 @@ GAME_LIBRARY = {
         release_date="September 4, 2018",
         size_mb=72600,
         patch_notes=[
-            "REWORKING",
+            "Added Maverick (Attacker) - Breaching torch",
+            "Added Clash (Defender) - CCE Shield",
+            "Hereford Base rework",
+            "Dynamic resolution scaling",
+            "Weapon sight misalignment fixes",
+            "Deployable shield rework"
         ]
     ),
     'WindBastion': GameInfo(
         name="Operation Wind Bastion",
         folder_name="Y3S4_WindBastion",
-        description="Y3S4; Added GIGR Operators Kaid and Nomad Along with The map Fortress ",
+        description="Y3S4; Added GIGR Operators Kaid and Nomad Along with The map Fortress",
         release_date="December 4, 2018",
         size_mb=76900,
         patch_notes=[
-            "REWORKING",
+            "Added Kaid (Defender) - Rtila Electroclaw",
+            "Added Nomad (Attacker) - Airjab launcher",
+            "New map: Fortress",
+            "Clubhouse rework",
+            "Recoil system changes",
+            "Operator gadget improvements"
         ]
     ),
     'BurntHorizon': GameInfo(
@@ -373,7 +625,12 @@ GAME_LIBRARY = {
         release_date="March 6, 2019",
         size_mb=59700,
         patch_notes=[
-            "REWORKING",
+            "Added Gridlock (Attacker) - Trax Stingers",
+            "Added Mozzie (Defender) - Pest devices",
+            "New map: Outback",
+            "Capitão rework",
+            "Lion rework",
+            "Reverse friendly fire system"
         ]
     ),
     'PhantomSight': GameInfo(
@@ -383,7 +640,12 @@ GAME_LIBRARY = {
         release_date="June 11, 2019",
         size_mb=67100,
         patch_notes=[
-            "REWORKING",
+            "Added Warden (Defender) - Glance Smart Glasses",
+            "Added Nøkk (Attacker) - HEL device",
+            "Kafe Dostoyevsky rework",
+            "IQ gadget improvements",
+            "Glaz thermal scope changes",
+            "Shield operator adjustments"
         ]
     ),
     'EmberRise': GameInfo(
@@ -393,30 +655,298 @@ GAME_LIBRARY = {
         release_date="September 11, 2019",
         size_mb=69600,
         patch_notes=[
-            "REWORKING",
+            "Added Amaru (Attacker) - Garra Hook",
+            "Added Goyo (Defender) - Volcán Shield",
+            "Kanal rework",
+            "Deployable shield rework",
+            "Clash balancing",
+            "Sound occlusion improvements"
         ]
     ),
     'ShiftingTides': GameInfo(
         name="Operation Shifting Tides",
         folder_name="Y4S4_ShiftingTides",
-        description="Year 2 Season 1 features Spanish GEO operators Jackal and Mira on the Coastline map.",
+        description="Y4S4; Added NAVYSEAL Operators Kali and Wamai Along with Theme Park rework",
         release_date="December 3, 2019",
         size_mb=75200,
         patch_notes=[
-            "REWORKING",
+            "Added Kali (Attacker) - CSRX 300 sniper",
+            "Added Wamai (Defender) - MAG-NET System",
+            "Theme Park rework",
+            "Twitch drone changes",
+            "Lesion mine visibility",
+            "Operator speed changes"
         ]
     ),
     'VoidEdge': GameInfo(
         name="Operation Void Edge",
         folder_name="Y5S1_VoidEdge",
-        description="Year 2 Season 1 features Spanish GEO operators Jackal and Mira on the Coastline map.",
+        description="Y5S1; Added NIGHTHAVEN Operators Iana and Oryx Along with Oregon rework",
         release_date="March 10, 2020",
         size_mb=74300,
         patch_notes=[
-            "REWORKING",
+            "Added Iana (Attacker) - Gemini Replicator",
+            "Added Oryx (Defender) - Remah Dash",
+            "Oregon rework",
+            "Jäger balancing changes",
+            "Buck skeleton key improvements",
+            "Weapon sight changes"
+        ]
+    ),
+    'SteelWave': GameInfo(
+        name="Operation Steel Wave",
+        folder_name="Y5S2_SteelWave",
+        description="Y5S2; Added South African Operator Melusi and Norwegian Breacher Ace, House Rework",
+        release_date="June 16, 2020",
+        size_mb=78200,
+        patch_notes=[
+            "Added Ace (Attacker) – S.E.L.M.A. hard breach",
+            "Added Melusi (Defender) – Banshee Sonic Defense",
+            "New secondary: Proximity Alarm",
+            "House map rework",
+            "Amaru and Echo rework"
+        ]
+    ),
+    'ShadowLegacy': GameInfo(
+        name="Operation Shadow Legacy",
+        folder_name="Y5S3_ShadowLegacy",
+        description="Y5S3; Introduced Splinter Cell’s Sam Fisher (Zero), Chalet Rework, New scopes",
+        release_date="September 10, 2020",
+        size_mb=79900,
+        patch_notes=[
+            "Added Zero (Attacker) – Argus camera launcher",
+            "Chalet map rework",
+            "Map Ban system",
+            "New scopes (1.5x, 2.0x, 3.0x) and sight changes",
+            "Ping 2.0 and reinforcement pool introduced"
+        ]
+    ),
+    'NeonDawnHM': GameInfo(
+        name="Operation Neon Dawn HM Support",
+        folder_name="Y5S4_NeonDawnHM",
+        description="Y5S4; Heated Metal Compatible Version. Added Aruni and Skyscraper Rework",
+        release_date="December 1, 2020",
+        size_mb=81000,
+        patch_notes=[
+            "Added Aruni (Defender) – Surya Laser Gates",
+            "Skyscraper map rework",
+            "Jäger rework, Hibana selector update",
+            "Echo drone visibility enabled",
+            "Optimized for Heated Metal compatibility"
+        ]
+    ),
+    'CrimsonHeist': GameInfo(
+        name="Operation Crimson Heist",
+        folder_name="Y6S1_CrimsonHeist",
+        description="Y6S1; Added Argentinian Operator Flores and Border Map Rework",
+        release_date="March 16, 2021",
+        size_mb=83700,
+        patch_notes=[
+            "Added Flores (Attacker) – RCE-Ratero drones",
+            "Border map rework",
+            "Match Replay system (Beta)",
+            "New secondary: Gonne-6",
+            "Price drops for earlier operators"
+        ]
+    ),
+    'NorthStar': GameInfo(
+        name="Operation North Star",
+        folder_name="Y6S2_NorthStar",
+        description="Y6S2; Added Thunderbird and Favela Rework",
+        release_date="June 14, 2021",
+        size_mb=84200,
+        patch_notes=[
+            "Added Thunderbird (Defender) – Kona Station healing device",
+            "Favela map rework",
+            "Armor system replaced with HP system",
+            "Bullet holes on soft walls rebalanced",
+            "Downed Operator icon and HP displayed"
+        ]
+    ),
+    'CrystalGuard': GameInfo(
+        name="Operation Crystal Guard",
+        folder_name="Y6S3_CrystalGuard",
+        description="Y6S3; Added Osa, Map Tweaks, and Flashbang Improvements",
+        release_date="September 7, 2021",
+        size_mb=86300,
+        patch_notes=[
+            "Added Osa (Attacker) – Transparent Talon Shields",
+            "Map updates: Coastline, Bank, Clubhouse",
+            "Flashbang mechanic changes",
+            "Armor rework finalization",
+            "Operator balancing updates"
+        ]
+    ),
+    'HighCalibre': GameInfo(
+        name="Operation High Calibre",
+        folder_name="Y6S4_HighCalibre",
+        description="Y6S4; Added Thorn, Outback Map Rework, HUD overhaul",
+        release_date="November 30, 2021",
+        size_mb=87100,
+        patch_notes=[
+            "Added Thorn (Defender) – Razorbloom Shells",
+            "Outback map rework",
+            "New HUD interface",
+            "New colorblind options",
+            "Operator balancing improvements"
+        ]
+    ),
+    'DemonVeil': GameInfo(
+        name="Operation Demon Veil",
+        folder_name="Y7S1_DemonVeil",
+        description="Y7S1; Added Azami and Emerald Plains map",
+        release_date="March 15, 2022",
+        size_mb=89500,
+        patch_notes=[
+            "Added Azami (Defender) – Kiba Barrier foam kunai",
+            "New map: Emerald Plains",
+            "Attacker Repick introduced",
+            "Match Replay console version",
+            "Team Deathmatch mode"
+        ]
+    ),
+    'VectorGlare': GameInfo(
+        name="Operation Vector Glare",
+        folder_name="Y7S2_VectorGlare",
+        description="Y7S2; Added Sens, Shooting Range, Operator Guides",
+        release_date="June 14, 2022",
+        size_mb=89900,
+        patch_notes=[
+            "Added Sens (Attacker) – R.O.U. Projector System",
+            "New map: Close Quarter (Team Deathmatch)",
+            "Shooting Range mode",
+            "Operator onboarding guides",
+            "Recoil system rework"
+        ]
+    ),
+    'BrutalSwarm': GameInfo(
+        name="Operation Brutal Swarm",
+        folder_name="Y7S3_BrutalSwarm",
+        description="Y7S3; Added Grim and Stadium Bravo map",
+        release_date="September 6, 2022",
+        size_mb=91000,
+        patch_notes=[
+            "Added Grim (Attacker) – Kawan Hive Launcher",
+            "Map pool update: Stadium Bravo returns",
+            "Impact EMP added as new secondary gadget",
+            "Recoil fine-tuning continued",
+            "Lobby UI updates"
+        ]
+    ),
+    'SolarRaid': GameInfo(
+        name="Operation Solar Raid",
+        folder_name="Y7S4_SolarRaid",
+        description="Y7S4; Added Solis and Crossplay + Ranked 2.0",
+        release_date="December 6, 2022",
+        size_mb=93000,
+        patch_notes=[
+            "Added Solis (Defender) – SPEC-IO electro scanner",
+            "Crossplay enabled across consoles",
+            "New Ranked system (MMR replaced)",
+            "New Battle Pass structure",
+            "Privacy mode enhancements"
+        ]
+    ),
+    'CommandingForce': GameInfo(
+        name="Operation Commanding Force",
+        folder_name="Y8S1_CommandingForce",
+        description="Y8S1; Added Brava and anti-cheat enhancements",
+        release_date="March 7, 2023",
+        size_mb=94500,
+        patch_notes=[
+            "Added Brava (Attacker) – Kludge Drone to hack gadgets",
+            "Reputation penalty for toxic voice chat",
+            "Mouse and keyboard detection on console",
+            "Reload cancel reintroduced",
+            "Balancing changes: Ash, Thatcher, Mozzie"
+        ]
+    ),
+    'DreadFactor': GameInfo(
+        name="Operation Dread Factor",
+        folder_name="Y8S2_DreadFactor",
+        description="Y8S2; Added Fenrir and Consulate Rework",
+        release_date="May 30, 2023",
+        size_mb=95300,
+        patch_notes=[
+            "Added Fenrir (Defender) – F-NATT Fear Grenades",
+            "Consulate map rework",
+            "New permanent playlist: Arcade",
+            "Shooting Range update with custom loadouts",
+            "New gadget: Observation Blocker"
+        ]
+    ),
+    'HeavyMettle': GameInfo(
+        name="Operation Heavy Mettle",
+        folder_name="Y8S3_HeavyMettle",
+        description="Y8S3; Added Korean Attacker Ram and Quick Match 2.0",
+        release_date="August 29, 2023",
+        size_mb=96200,
+        patch_notes=[
+            "Added Ram (Attacker) – BU-GI Auto Breacher",
+            "Quick Match 2.0 improvements",
+            "Defuser timer displayed at all times",
+            "Operator tutorials added",
+            "Reinforcement counter UI"
+        ]
+    ),
+    'DeepFreeze': GameInfo(
+        name="Operation Deep Freeze",
+        folder_name="Y8S4_DeepFreeze",
+        description="Y8S4; Added Tubarão and Lair map, Frost rework",
+        release_date="November 28, 2023",
+        size_mb=97300,
+        patch_notes=[
+            "Added Tubarão (Defender) – Zoto Canisters (freeze gadgets)",
+            "New map: Lair",
+            "Frost Welcome Mat rework",
+            "Operator loadout balancing",
+            "Map filter UI changes"
+        ]
+    ),
+    'DeadlyOmen': GameInfo(
+        name="Operation Deadly Omen",
+        folder_name="Y9S1_DeadlyOmen",
+        description="Y9S1; Added Deimos and Reputation System Overhaul",
+        release_date="March 12, 2024",
+        size_mb=98400,
+        patch_notes=[
+            "Added Deimos (Attacker) – DeathMARK Tracker",
+            "Reputation System 2.0",
+            "Operator pricing adjustments",
+            "Siege tutorials improved",
+            "Defuser UI clarified"
+        ]
+    ),
+    'NewBlood': GameInfo(
+        name="Operation New Blood",
+        folder_name="Y9S2_NewBlood",
+        description="Y9S2; Recruit reworked into Striker and Sentry roles",
+        release_date="June 11, 2024",
+        size_mb=99100,
+        patch_notes=[
+            "Recruit rework: Striker (Attacker), Sentry (Defender)",
+            "Map rotations updated",
+            "Shield operator tweaks",
+            "Aim assist refinement (console)",
+            "Bug fixes and optimization"
+        ]
+    ),
+    'PrepPhase': GameInfo(
+        name="Prep Phase",
+        folder_name="Y10S1_PrepPhase",
+        description="Y10S1; Anniversary season – No new operator, core gameplay focus",
+        release_date="July 23, 2025",
+        size_mb=101000,
+        patch_notes=[
+            "No new operator – focus on core systems",
+            "New legacy skins and bundles",
+            "Operator tuning and optimization",
+            "Vaulting and ADS refinements",
+            "Prep for new features in Y10S2"
         ]
     ),
 }
+
 
 TEST_SERVER_LIBRARY = {}
 try:
@@ -761,6 +1291,7 @@ class GameCard(BoxLayout):
         try:
             layout = BoxLayout(orientation='vertical', spacing=15, padding=20)
             
+            
             header = BoxLayout(orientation='vertical', spacing=8, size_hint_y=None, height=80)
             
             title_label = Label(
@@ -841,7 +1372,6 @@ class GameCard(BoxLayout):
             )
             
             close_btn.bind(on_press=lambda x: popup.dismiss())
-            
             popup.open()
             
         except Exception as e:
@@ -1414,38 +1944,205 @@ class LibraryScreen(Screen):
         self.tab_panel.add_widget(test_servers_tab)
     
     def create_patches_tab(self):
-        """Create the Patches tab"""
+        """Create the Patches tab with HeatedMetal support"""
         patches_tab = TabbedPanelItem(text='Patches')
         
-        empty_layout = BoxLayout(orientation='vertical', padding=50)
+        main_layout = BoxLayout(orientation='vertical', padding=25, spacing=20)
         
-        empty_label = Label(
-            text="Patch management features coming soon...",
-            font_size=16,
-            color=COLORS['text_secondary'],
-            halign='center'
+        header_layout = BoxLayout(orientation='vertical', spacing=10, size_hint_y=None, height=80)
+        
+
+        title_label = Label(
+            text="HEATED METAL PATCHES",
+            font_size=18,
+            bold=True,
+            color=COLORS['primary'],
+            size_hint_y=None,
+            height=35,
+            halign='left'
         )
-        empty_layout.add_widget(empty_label)
+        header_layout.add_widget(title_label)
         
-        patches_tab.add_widget(empty_layout)
+        desc_label = Label(
+            text="Download Custom Modding Tool Heated Metal",
+            font_size=12,
+            color=COLORS['text_secondary'],
+            size_hint_y=None,
+            height=25,
+            halign='left'
+        )
+        header_layout.add_widget(desc_label)
+        
+        main_layout.add_widget(header_layout)
+        
+        patch_card = BoxLayout(orientation='vertical', spacing=15, size_hint_y=None, height=200, padding=20)
+        
+        with patch_card.canvas.before:
+            Color(*COLORS['surface'])
+            patch_card.bg_rect = RoundedRectangle(pos=patch_card.pos, size=patch_card.size, radius=[8])
+            Color(*COLORS['border'])
+            patch_card.border_line = Line(rounded_rectangle=(patch_card.x, patch_card.y, patch_card.width, patch_card.height, 8), width=1)
+        
+        patch_card.bind(pos=lambda *args: [setattr(patch_card.bg_rect, 'pos', patch_card.pos), 
+                                         setattr(patch_card.border_line, 'rounded_rectangle', (patch_card.x, patch_card.y, patch_card.width, patch_card.height, 8))],
+                       size=lambda *args: [setattr(patch_card.bg_rect, 'size', patch_card.size),
+                                          setattr(patch_card.border_line, 'rounded_rectangle', (patch_card.x, patch_card.y, patch_card.width, patch_card.height, 8))])
+        
+        patch_title = Label(
+            text="HeatedMetal v0.2.3",
+            font_size=16,
+            bold=True,
+            color=COLORS['text_primary'],
+            size_hint_y=None,
+            height=30,
+            halign='left'
+        )
+        patch_card.add_widget(patch_title)
+        
+        patch_desc = Label(
+            text="Modding SDK For Neon Dawn (HEATEDMETAL SUPPORT)",
+            font_size=12,
+            color=COLORS['text_secondary'],
+            text_size=(None, None),
+            size_hint_y=None,
+            height=40,
+            halign='left'
+        )
+        patch_card.add_widget(patch_desc)
+        
+        download_btn = ModernButton(
+            text="DOWNLOAD HEATEDMETAL",
+            button_type="install",
+            size_hint_y=None,
+            height=40
+        )
+        download_btn.bind(on_press=lambda x: self.download_heated_metal())
+        patch_card.add_widget(download_btn)
+        
+        main_layout.add_widget(patch_card)
+        main_layout.add_widget(Widget()) 
+        
+
+        
+        patches_tab.add_widget(main_layout)
         self.tab_panel.add_widget(patches_tab)
     
     def create_tools_tab(self):
-        """Create the Tools tab"""
+        """Create the Tools tab with tool downloads"""
         tools_tab = TabbedPanelItem(text='Tools')
         
-        empty_layout = BoxLayout(orientation='vertical', padding=50)
+        main_layout = BoxLayout(orientation='vertical', padding=25, spacing=20)
         
-        empty_label = Label(
-            text="Additional tools coming soon...",
-            font_size=16,
-            color=COLORS['text_secondary'],
-            halign='center'
+        header_layout = BoxLayout(orientation='vertical', spacing=10, size_hint_y=None, height=80)
+        
+        title_label = Label(
+            text="ADDITIONAL TOOLS",
+            font_size=18,
+            bold=True,
+            color=COLORS['primary'],
+            size_hint_y=None,
+            height=35,
+            halign='left'
         )
-        empty_layout.add_widget(empty_label)
+        header_layout.add_widget(title_label)
         
-        tools_tab.add_widget(empty_layout)
+        desc_label = Label(
+            text="Download useful tools and utilities for Rainbow Six Siege",
+            font_size=12,
+            color=COLORS['text_secondary'],
+            size_hint_y=None,
+            height=25,
+            halign='left'
+        )
+        header_layout.add_widget(desc_label)
+        
+        main_layout.add_widget(header_layout)
+        
+        tools_scroll = ScrollView()
+        tools_layout = GridLayout(cols=2, spacing=15, size_hint_y=None, padding=10)
+        tools_layout.bind(minimum_height=tools_layout.setter('height'))
+        
+        liberator_card = self.create_tool_card(
+            "R6 Liberator",
+            "Manifest tool for Rainbow Six Siege",
+            "v0.0.0.22",
+            lambda: self.download_liberator()
+        )
+        tools_layout.add_widget(liberator_card)
+        
+        dxvk_card = self.create_tool_card(
+            "Siege DXVK",
+            "DirectX to Vulkan translation layer for better performance",
+            "Latest",
+            lambda: self.download_dxvk()
+        )
+        tools_layout.add_widget(dxvk_card)
+        
+        tools_scroll.add_widget(tools_layout)
+        main_layout.add_widget(tools_scroll)
+        
+        tools_tab.add_widget(main_layout)
         self.tab_panel.add_widget(tools_tab)
+    
+    def create_tool_card(self, name, description, version, download_callback):
+        """Create a tool card"""
+        card = BoxLayout(orientation='vertical', spacing=12, size_hint_y=None, height=150, padding=15)
+        
+        with card.canvas.before:
+            Color(*COLORS['surface'])
+            card.bg_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[8])
+            Color(*COLORS['border'])
+            card.border_line = Line(rounded_rectangle=(card.x, card.y, card.width, card.height, 8), width=1)
+        
+        card.bind(pos=lambda *args: [setattr(card.bg_rect, 'pos', card.pos), 
+                                   setattr(card.border_line, 'rounded_rectangle', (card.x, card.y, card.width, card.height, 8))],
+                 size=lambda *args: [setattr(card.bg_rect, 'size', card.size),
+                                    setattr(card.border_line, 'rounded_rectangle', (card.x, card.y, card.width, card.height, 8))])
+        
+        title_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=25)
+        
+        title_label = Label(
+            text=name,
+            font_size=14,
+            bold=True,
+            color=COLORS['text_primary'],
+            halign='left'
+        )
+        title_layout.add_widget(title_label)
+        
+        version_label = Label(
+            text=version,
+            font_size=10,
+            color=COLORS['text_disabled'],
+            size_hint_x=None,
+            width=60,
+            halign='right'
+        )
+        title_layout.add_widget(version_label)
+        
+        card.add_widget(title_layout)
+        
+        desc_label = Label(
+            text=description,
+            font_size=11,
+            color=COLORS['text_secondary'],
+            text_size=(None, None),
+            size_hint_y=None,
+            height=40,
+            halign='left'
+        )
+        card.add_widget(desc_label)
+        
+        download_btn = ModernButton(
+            text="DOWNLOAD",
+            button_type="primary",
+            size_hint_y=None,
+            height=35
+        )
+        download_btn.bind(on_press=lambda x: download_callback())
+        card.add_widget(download_btn)
+        
+        return card
     
     def create_modding_tab(self):
         """Create the Modding tab"""
@@ -1512,6 +2209,72 @@ class LibraryScreen(Screen):
             for game_info in TEST_SERVER_LIBRARY.values():
                 game_card = GameCard(game_info, size_hint_x=None, width=350)
                 self.test_servers_content_layout.add_widget(game_card)
+    
+    @threaded
+    def download_heated_metal(self):
+        """Download HeatedMetal patches"""
+        progress_dialog = ProgressDialog("Downloading HeatedMetal...")
+        progress_dialog.create_popup()
+        
+        try:
+            progress_dialog.update_progress(10, "Connecting to GitHub...")
+            
+            success, message = PatchManager.download_heated_metal()
+            
+            if success:
+                progress_dialog.update_progress(100, "HeatedMetal installed successfully!")
+                Clock.schedule_once(lambda dt: self._show_success("HeatedMetal Downloaded", message), 1.5)
+            else:
+                Clock.schedule_once(lambda dt: self._show_error("Download Failed", message))
+            
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._show_error("Download Error", f"Failed to download HeatedMetal: {str(e)}"))
+        finally:
+            progress_dialog.close_dialog()
+    
+    @threaded
+    def download_liberator(self):
+        """Download R6 Liberator"""
+        progress_dialog = ProgressDialog("Downloading R6 Liberator...")
+        progress_dialog.create_popup()
+        
+        try:
+            progress_dialog.update_progress(10, "Connecting to download server...")
+            
+            success, message = ToolManager.download_liberator()
+            
+            if success:
+                progress_dialog.update_progress(100, "R6 Liberator downloaded successfully!")
+                Clock.schedule_once(lambda dt: self._show_success("R6 Liberator Downloaded", message), 1.5)
+            else:
+                Clock.schedule_once(lambda dt: self._show_error("Download Failed", message))
+            
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._show_error("Download Error", f"Failed to download R6 Liberator: {str(e)}"))
+        finally:
+            progress_dialog.close_dialog()
+    
+    @threaded
+    def download_dxvk(self):
+        """Download Siege DXVK"""
+        progress_dialog = ProgressDialog("Downloading Siege DXVK...")
+        progress_dialog.create_popup()
+        
+        try:
+            progress_dialog.update_progress(10, "Connecting to download server...")
+            
+            success, message = ToolManager.download_dxvk()
+            
+            if success:
+                progress_dialog.update_progress(100, "Siege DXVK installed successfully!")
+                Clock.schedule_once(lambda dt: self._show_success("Siege DXVK Downloaded", message), 1.5)
+            else:
+                Clock.schedule_once(lambda dt: self._show_error("Download Failed", message))
+            
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._show_error("Download Error", f"Failed to download Siege DXVK: {str(e)}"))
+        finally:
+            progress_dialog.close_dialog()
     
     @threaded
     def download_game(self, season_key, game_card=None):
@@ -1593,16 +2356,16 @@ class LibraryScreen(Screen):
         
         game_name = (TEST_SERVER_LIBRARY[game_key].name if is_test_server else GAME_LIBRARY[game_key].name)
         
-        self._show_success_dialog("Installation Complete", 
-                                f"{game_name} installation completed successfully!\n\nReady to launch from your library.")
+        self._show_success("Installation Complete", 
+                          f"{game_name} installation completed successfully!\n\nReady to launch from your library.")
     
     def _download_error(self, dialog, error):
         """Handle download error"""
         dialog.close_dialog()
-        self._show_error_dialog("Installation Failed", 
-                              f"An error occurred during installation:\n\n{error}\n\nPlease check your connection and try again.")
+        self._show_error("Installation Failed", 
+                        f"An error occurred during installation:\n\n{error}\n\nPlease check your connection and try again.")
     
-    def _show_success_dialog(self, title, message):
+    def _show_success(self, title, message):
         """Show success dialog"""
         layout = BoxLayout(orientation='vertical', spacing=20, padding=25)
         
@@ -1643,7 +2406,7 @@ class LibraryScreen(Screen):
         ok_btn.bind(on_press=lambda x: popup.dismiss())
         popup.open()
     
-    def _show_error_dialog(self, title, message):
+    def _show_error(self, title, message):
         """Show error dialog"""
         layout = BoxLayout(orientation='vertical', spacing=20, padding=25)
         
@@ -1732,7 +2495,7 @@ class SettingsScreen(Screen):
         title_section.add_widget(subtitle)
         
         header.add_widget(title_section)
-        header.add_widget(Widget()) 
+        header.add_widget(Widget())  
         
         main_layout.add_widget(header)
         
@@ -1759,6 +2522,14 @@ class SettingsScreen(Screen):
             self.create_folder_setting("Downloads Folder", "downloads_folder", "Choose where games are installed")
         ])
         settings_layout.add_widget(download_section)
+        
+        resources_section = self.create_settings_section("RESOURCES", [
+            self.create_folder_setting("Resources Folder", "resources_folder", "Choose where tools and resources are stored"),
+            self.create_switch_setting("Auto-download Resources", "auto_download_resources", "Automatically download required resources"),
+            self.create_switch_setting("Check Resources on Startup", "check_resources_on_startup", "Verify resources are available when starting the app"),
+            self.create_button_setting("Setup Resources Now", "Download and setup all required resources", lambda: self.setup_resources())
+        ])
+        settings_layout.add_widget(resources_section)
         
         interface_section = self.create_settings_section("INTERFACE", [
             self.create_switch_setting("Show Patch Notes", "show_patch_notes", "Display patch notes button on game cards")
@@ -1927,6 +2698,48 @@ class SettingsScreen(Screen):
         container.add_widget(switch)
         return container
     
+    def create_button_setting(self, label, description, callback):
+        """Create a button setting"""
+        container = BoxLayout(orientation='horizontal', spacing=20, size_hint_y=None, height=60)
+        
+        info_layout = BoxLayout(orientation='vertical', spacing=4)
+        
+        label_widget = Label(
+            text=label,
+            font_size=12,
+            bold=True,
+            color=COLORS['text_primary'],
+            halign='left',
+            size_hint_y=None,
+            height=25
+        )
+        info_layout.add_widget(label_widget)
+        
+        desc_widget = Label(
+            text=description,
+            font_size=10,
+            color=COLORS['text_secondary'],
+            halign='left',
+            size_hint_y=None,
+            height=20,
+            text_size=(None, None)
+        )
+        info_layout.add_widget(desc_widget)
+        
+        container.add_widget(info_layout)
+        
+        button = ModernButton(
+            text="Setup",
+            button_type="primary",
+            size_hint_x=None,
+            width=100,
+            height=35
+        )
+        button.bind(on_press=lambda x: callback())
+        container.add_widget(button)
+        
+        return container
+    
     def create_slider_setting(self, label, setting_key, min_val, max_val, step):
         """Create a slider setting"""
         container = BoxLayout(orientation='vertical', spacing=12, size_hint_y=None, height=75)
@@ -1987,14 +2800,15 @@ class SettingsScreen(Screen):
         
         folder_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=35)
         
-        self.folder_label = Label(
+        folder_label = Label(
             text=getattr(user_settings, setting_key),
             font_size=10,
             color=COLORS['text_secondary'],
             halign='left',
             text_size=(None, None)
         )
-        folder_layout.add_widget(self.folder_label)
+        setattr(self, f"{setting_key}_label", folder_label)
+        folder_layout.add_widget(folder_label)
         
         browse_btn = ModernButton(
             text="Browse",
@@ -2003,7 +2817,7 @@ class SettingsScreen(Screen):
             width=80,
             height=30
         )
-        browse_btn.bind(on_press=lambda x: self.browse_folder())
+        browse_btn.bind(on_press=lambda x: self.browse_folder(setting_key))
         folder_layout.add_widget(browse_btn)
         
         container.add_widget(folder_layout)
@@ -2020,12 +2834,12 @@ class SettingsScreen(Screen):
         
         return container
     
-    def browse_folder(self):
-        """Open folder browser"""
+    def browse_folder(self, setting_key):
+        """Open folder browser for specific setting"""
         layout = BoxLayout(orientation='vertical', spacing=15, padding=20)
         
         title_label = Label(
-            text="Select Downloads Folder",
+            text=f"Select {setting_key.replace('_', ' ').title()}",
             font_size=16,
             bold=True,
             color=COLORS['primary'],
@@ -2035,7 +2849,7 @@ class SettingsScreen(Screen):
         layout.add_widget(title_label)
         
         filechooser = FileChooserListView(
-            path=user_settings.downloads_folder,
+            path=getattr(user_settings, setting_key),
             dirselect=True
         )
         layout.add_widget(filechooser)
@@ -2069,14 +2883,37 @@ class SettingsScreen(Screen):
         def select_folder(instance):
             if filechooser.selection:
                 selected_path = filechooser.selection[0]
-                self.folder_label.text = selected_path
-                user_settings.downloads_folder = selected_path
+                folder_label = getattr(self, f"{setting_key}_label")
+                folder_label.text = selected_path
+                setattr(user_settings, setting_key, selected_path)
             popup.dismiss()
         
         cancel_btn.bind(on_press=lambda x: popup.dismiss())
         select_btn.bind(on_press=select_folder)
         
         popup.open()
+    
+    @threaded
+    def setup_resources(self):
+        """Setup all required resources"""
+        progress_dialog = ProgressDialog("Setting up resources...")
+        progress_dialog.create_popup()
+        
+        try:
+            progress_dialog.update_progress(10, "Checking resource requirements...")
+            
+            success, message = ResourceManager.setup_all_resources()
+            
+            if success:
+                progress_dialog.update_progress(100, "Resources setup complete!")
+                Clock.schedule_once(lambda dt: self._show_success("Resources Setup Complete", message), 1.5)
+            else:
+                Clock.schedule_once(lambda dt: self._show_error("Setup Failed", message))
+            
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._show_error("Setup Error", f"Failed to setup resources: {str(e)}"))
+        finally:
+            progress_dialog.close_dialog()
     
     def save_settings(self, _):
         """Save all settings"""
@@ -2093,6 +2930,8 @@ class SettingsScreen(Screen):
         user_settings.remember_password = self.remember_password_switch.active
         user_settings.auto_configure = self.auto_configure_switch.active
         user_settings.show_patch_notes = self.show_patch_notes_switch.active
+        user_settings.auto_download_resources = self.auto_download_resources_switch.active
+        user_settings.check_resources_on_startup = self.check_resources_on_startup_switch.active
         
         if user_settings.remember_password:
             user_settings.password = self.password_input.text.strip()
@@ -2211,6 +3050,13 @@ class ModernDownloaderApp(App):
     def _check_resources(self):
         """Background resource checking"""
         try:
+            if user_settings.check_resources_on_startup:
+                success, missing = ResourceManager.check_resources()
+                
+                if not success and user_settings.auto_download_resources:
+                    print("Missing resources detected, setting up automatically...")
+                    ResourceManager.setup_all_resources()
+            
             if hasattr(downloader, 'check_onedrive'):
                 downloader.check_onedrive()
             if hasattr(downloader, 'ensure_dotnet'):
@@ -2286,7 +3132,7 @@ class ModernDownloaderApp(App):
                 layout.add_widget(title_label)
                 
                 welcome_text = Label(
-                    text="Hope you have a better expierence using T's Downloader\n\nDownload and play legacy versions, test servers, and manage your installations with ease.\n\nConfigure your Steam credentials in Settings to get started.",
+                    text="Hope you have a better experience using T's Downloader\n\nDownload and play legacy versions, test servers, and manage your installations with ease.\n\nConfigure your Steam credentials in Settings to get started.",
                     color=COLORS['text_secondary'],
                     text_size=(500, None),
                     halign='center',
