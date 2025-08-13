@@ -1,9 +1,8 @@
-# S1lly's Downloader 
+# REALM Downloader
 
-Hello! Im S1lly. I am a community member of Operation: Throwback, This marks the start of S1lly's Downloader a new and improved old siege downloader aimed at producing a better and quicker install guide for R6:S Old siege, Here will reside source code for the project and its various upgrades!
+The project is undergoing a major rework, the project name will now be REALM, it will be rewritten in rust
 
-Downloader Versions
-- SlejmUr Version (WIP)
-- Verges Version (WIP)
+> ![WARNING]
+> OLDER CODE IS NOT DEPRECATED AND NO LONGER SUPPORTED
 
 Join Operation Throwback: https://discord.gg/JGA9WPF4K8
